@@ -20,4 +20,5 @@ schema:
       host: str
       api_key: password
       verify_ssl: bool?
+      state_source: list(api|services)?
   poll_interval: int(2,300)

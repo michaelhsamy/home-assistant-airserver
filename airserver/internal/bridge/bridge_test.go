@@ -25,12 +25,13 @@ import (
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 type fakeDevice struct {
-	mu     sync.Mutex
-	state  State
-	writes []string
-	status int
-	delay  time.Duration
-	config DeviceConfig
+	mu           sync.Mutex
+	state        State
+	writes       []string
+	status       int
+	delay        time.Duration
+	config       DeviceConfig
+	ignoreWrites bool
 }
 
 func newDevice(t *testing.T, index int) *fakeDevice {
@@ -59,10 +60,10 @@ func newDevice(t *testing.T, index int) *fakeDevice {
 			}
 			data, _ := json.Marshal(patch)
 			d.writes = append(d.writes, string(data))
-			if v, ok := patch["livestreaming_enabled"]; ok {
+			if v, ok := patch["livestreaming_enabled"]; ok && !d.ignoreWrites {
 				d.state.Livestream = boolPtr(v)
 			}
-			if v, ok := patch["livestreaming_rtsp"]; ok {
+			if v, ok := patch["livestreaming_rtsp"]; ok && !d.ignoreWrites {
 				d.state.RTSP = boolPtr(v)
 			}
 		} else {
@@ -126,21 +127,25 @@ func startBroker(t *testing.T, address string) (*testBroker, brokerConfig) {
 }
 
 type observer struct {
-	mu     sync.Mutex
-	values map[string]string
-	counts map[string]int
-	client paho.Client
+	mu            sync.Mutex
+	values        map[string]string
+	counts        map[string]int
+	offlineCounts map[string]int
+	client        paho.Client
 }
 
 func observe(t *testing.T, c brokerConfig) *observer {
 	t.Helper()
-	o := &observer{values: make(map[string]string), counts: make(map[string]int)}
+	o := &observer{values: make(map[string]string), counts: make(map[string]int), offlineCounts: make(map[string]int)}
 	options := paho.NewClientOptions().AddBroker("tcp://" + net.JoinHostPort(c.host, strconv.Itoa(c.port))).SetAutoReconnect(false).SetCleanSession(true)
 	options.SetDefaultPublishHandler(func(_ paho.Client, m paho.Message) {
 		o.mu.Lock()
 		defer o.mu.Unlock()
 		o.values[m.Topic()] = string(m.Payload())
 		o.counts[m.Topic()]++
+		if string(m.Payload()) == "offline" {
+			o.offlineCounts[m.Topic()]++
+		}
 	})
 	o.client = paho.NewClient(options)
 	if err := waitToken(context.Background(), o.client.Connect()); err != nil {
@@ -158,6 +163,11 @@ func (o *observer) value(topic string) string {
 	return o.values[topic]
 }
 func (o *observer) count(topic string) int { o.mu.Lock(); defer o.mu.Unlock(); return o.counts[topic] }
+func (o *observer) offlineCount(topic string) int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.offlineCounts[topic]
+}
 func (o *observer) publish(t *testing.T, topic, payload string, retain bool) {
 	t.Helper()
 	if err := waitToken(context.Background(), o.client.Publish(topic, 0, retain, payload)); err != nil {
@@ -257,6 +267,38 @@ func TestThreeIndependentDevicesAndExternalState(t *testing.T) {
 	eventually(t, func() bool { return o.value(topic(ids[0], "livestream/state")) == "ON" })
 	if a.count() != 0 {
 		t.Fatal("external change was written back")
+	}
+}
+
+func TestUnconfirmedSwitchCommandMarksDeviceUnavailable(t *testing.T) {
+	for _, cmd := range []command{{"rtsp", "OFF"}, {"livestream", "ON"}} {
+		t.Run(cmd.control, func(t *testing.T) {
+			broker, c := startBroker(t, "127.0.0.1:0")
+			defer broker.Close()
+			o := observe(t, c)
+			d := newDevice(t, 1)
+			d.modify(func() {
+				d.state.RTSP = boolPtr(true)
+				d.ignoreWrites = true
+			})
+			stop := startBridge(t, c, filepath.Join(t.TempDir(), "registry.json"), d)
+			defer stop()
+			waitOnline(t, o, d)
+			id := deviceID(d.state.Serial)
+			before := o.offlineCount(topic(id, "availability"))
+			o.publish(t, topic(id, cmd.control+"/set"), cmd.payload, false)
+			deadline := time.Now().Add(2 * time.Second)
+			for o.offlineCount(topic(id, "availability")) == before {
+				if time.Now().After(deadline) {
+					t.Fatal("successful HTTP response with unchanged setting was treated as confirmed")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			waitOnline(t, o, d)
+			if d.count() != 1 {
+				t.Fatal("unconfirmed command was retried")
+			}
+		})
 	}
 }
 

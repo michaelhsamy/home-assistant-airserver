@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -24,15 +26,21 @@ type State struct {
 }
 
 type API struct {
-	config DeviceConfig
-	client *http.Client
+	config      DeviceConfig
+	client      *http.Client
+	rtspAddress string
 }
 
 func NewAPI(config DeviceConfig) *API {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	// This exception is scoped to this device and only enabled by its configuration.
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: !config.verifyTLS()}
-	return &API{config: config, client: &http.Client{
+	host, _ := url.Parse(config.Host)
+	rtspAddress := ""
+	if host != nil {
+		rtspAddress = net.JoinHostPort(host.Hostname(), "1554")
+	}
+	return &API{config: config, rtspAddress: rtspAddress, client: &http.Client{
 		Timeout: requestTimeout, Transport: transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
@@ -81,13 +89,28 @@ func (a *API) Read(ctx context.Context) (State, error) {
 		return state, err
 	}
 	// Decode only the fields we need; the response may also contain credentials.
-	if json.Unmarshal(data, &state) != nil || state.Livestream == nil || state.RTSP == nil {
+	if a.config.StateSource == "services" {
+		// Service mode deliberately ignores the firmware's streaming fields,
+		// including missing or invalid values, but still verifies device identity.
+		var metadata struct {
+			Serial  string `json:"device_serial"`
+			Model   string `json:"device_model"`
+			Version string `json:"device_system_version"`
+		}
+		if json.Unmarshal(data, &metadata) != nil {
+			return state, errors.New("firmware response contains invalid JSON")
+		}
+		state.Serial, state.Model, state.Version = metadata.Serial, metadata.Model, metadata.Version
+	} else if json.Unmarshal(data, &state) != nil || state.Livestream == nil || state.RTSP == nil {
 		return state, errors.New("firmware response is missing livestream/RTSP boolean settings or contains invalid JSON")
 	}
 	if strings.TrimSpace(state.Serial) == "" {
 		return state, errors.New("firmware response is missing device_serial")
 	}
-	return state, nil
+	if a.config.StateSource == "services" {
+		state.Livestream, state.RTSP, err = a.readServices(ctx)
+	}
+	return state, err
 }
 
 func validCommand(control, payload string) bool {

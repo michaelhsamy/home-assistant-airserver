@@ -39,6 +39,7 @@ func discovery(id, name string, state State) map[string]map[string]any {
 			config["payload_press"] = "PRESS"
 		} else {
 			config["state_topic"], config["payload_on"], config["payload_off"], config["optimistic"] = topic(id, control+"/state"), "ON", "OFF", false
+			config["availability"] = append(config["availability"].([]map[string]string), map[string]string{"topic": topic(id, control+"/availability")})
 		}
 		result[discoveryTopic(id, control)] = config
 	}

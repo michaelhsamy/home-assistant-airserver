@@ -15,10 +15,11 @@ import (
 )
 
 type DeviceConfig struct {
-	Name      string `json:"name"`
-	Host      string `json:"host"`
-	APIKey    string `json:"api_key"`
-	VerifySSL *bool  `json:"verify_ssl,omitempty"`
+	Name        string `json:"name"`
+	Host        string `json:"host"`
+	APIKey      string `json:"api_key"`
+	VerifySSL   *bool  `json:"verify_ssl,omitempty"`
+	StateSource string `json:"state_source,omitempty"`
 }
 
 // Avoid credentials in accidental formatted logs.
@@ -48,6 +49,9 @@ func ParseOptions(data []byte) (Options, error) {
 	for i := range o.Devices {
 		d := &o.Devices[i]
 		d.Name, d.APIKey = strings.TrimSpace(d.Name), strings.TrimSpace(d.APIKey)
+		if d.StateSource != "" && d.StateSource != "api" && d.StateSource != "services" {
+			return o, fmt.Errorf("device %d: state_source must be api or services", i+1)
+		}
 		if d.Name == "" || d.APIKey == "" {
 			return o, fmt.Errorf("device %d: name and api_key are required", i+1)
 		}

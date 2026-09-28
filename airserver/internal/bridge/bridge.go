@@ -139,7 +139,7 @@ func (s *session) removeDevice(id string) error {
 		return err
 	}
 	for _, control := range controls {
-		for _, name := range []string{discoveryTopic(id, control), topic(id, control+"/state"), topic(id, control+"/set")} {
+		for _, name := range []string{discoveryTopic(id, control), topic(id, control+"/state"), topic(id, control+"/set"), topic(id, control+"/availability")} {
 			if err := s.publish(name, []byte{}); err != nil {
 				return err
 			}
