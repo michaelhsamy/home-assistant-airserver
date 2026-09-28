@@ -1,0 +1,5 @@
+/airserver/bin/
+*.test
+coverage.out
+options.json
+registry.json

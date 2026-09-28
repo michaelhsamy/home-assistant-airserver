@@ -1,0 +1,20 @@
+configuration:
+  devices:
+    name: AirServer devices
+    description: Each device gets its own Livestream and RTSP switches and End session button.
+    fields:
+      name:
+        name: Device name
+        description: A friendly name, such as Meeting room.
+      host:
+        name: Address
+        description: HTTPS hostname or IP address, optionally including a port. No API path.
+      api_key:
+        name: API key
+        description: API key from AirServer Device Management > Security.
+      verify_ssl:
+        name: Verify HTTPS certificate
+        description: Defaults to enabled. Disable only for a device with an untrusted self-signed certificate.
+  poll_interval:
+    name: Refresh interval
+    description: Seconds between device status checks (2–300). Commands also refresh the state immediately.

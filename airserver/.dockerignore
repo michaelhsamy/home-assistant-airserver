@@ -1,0 +1,4 @@
+*.md
+translations
+**/*_test.go
+bin
