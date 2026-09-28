@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1
 
 - Add optional `state_source: services` per device to work around stale REST
   streaming state using the Livestream WebSocket and RTSP TCP port 1554.
