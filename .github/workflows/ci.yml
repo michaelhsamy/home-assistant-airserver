@@ -37,7 +37,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: version
-        run: echo "version=$(sed -n 's/^version: "\(.*\)"$/\1/p' airserver/config.yaml)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(sed -n 's/^version: "\(.*\)"$/\1/p' airserver/config.yaml)" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
