@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0
+## 0.1.2
 
 - Add **Reboot** and **Power off** buttons. They are sent once and not read
   back; the device becomes unavailable on the next status check and recovers
