@@ -36,7 +36,10 @@ type fakeDevice struct {
 
 func newDevice(t *testing.T, index int) *fakeDevice {
 	t.Helper()
-	d := &fakeDevice{state: State{Serial: fmt.Sprintf("serial-%d", index), Model: "Connect 1", Version: "test", Livestream: boolPtr(false), RTSP: boolPtr(false)}, status: 200}
+	d := &fakeDevice{state: State{Serial: fmt.Sprintf("serial-%d", index), Model: "Connect 1", Version: "test", Livestream: boolPtr(false), RTSP: boolPtr(false),
+		AirPlay: stringValue("everyone"), GoogleCast: stringValue("off"), Miracast: stringValue("prompt"), Quality: stringValue("medium"),
+		BootTime: stringValue("2026-09-28T01:02:03+10:00"), Hostname: stringValue(fmt.Sprintf("airserver-%d", index)), DeviceName: stringValue(fmt.Sprintf("Room %d", index)),
+		Organization: stringValue(""), Timezone: stringValue("Australia/Sydney")}, status: 200}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-key" {
 			w.WriteHeader(401)
@@ -52,7 +55,7 @@ func newDevice(t *testing.T, index int) *fakeDevice {
 			return
 		}
 		if r.Method == http.MethodPatch {
-			var patch map[string]bool
+			var patch map[string]any
 			if json.NewDecoder(r.Body).Decode(&patch) != nil {
 				d.mu.Unlock()
 				w.WriteHeader(400)
@@ -60,11 +63,8 @@ func newDevice(t *testing.T, index int) *fakeDevice {
 			}
 			data, _ := json.Marshal(patch)
 			d.writes = append(d.writes, string(data))
-			if v, ok := patch["livestreaming_enabled"]; ok && !d.ignoreWrites {
-				d.state.Livestream = boolPtr(v)
-			}
-			if v, ok := patch["livestreaming_rtsp"]; ok && !d.ignoreWrites {
-				d.state.RTSP = boolPtr(v)
+			if !d.ignoreWrites {
+				d.apply(patch)
 			}
 		} else {
 			d.writes = append(d.writes, r.Method+" "+r.URL.Path)
@@ -84,7 +84,36 @@ func newDevice(t *testing.T, index int) *fakeDevice {
 	d.config = DeviceConfig{Name: fmt.Sprintf("Room %d", index), Host: server.URL, APIKey: "test-key", VerifySSL: boolPtr(false)}
 	return d
 }
-func (d *fakeDevice) count() int       { d.mu.Lock(); defer d.mu.Unlock(); return len(d.writes) }
+func (d *fakeDevice) count() int { d.mu.Lock(); defer d.mu.Unlock(); return len(d.writes) }
+func (d *fakeDevice) apply(patch map[string]any) {
+	for field, value := range patch {
+		switch v := value.(type) {
+		case bool:
+			if field == "livestreaming_enabled" {
+				d.state.Livestream = boolPtr(v)
+			} else if field == "livestreaming_rtsp" {
+				d.state.RTSP = boolPtr(v)
+			}
+		case string:
+			// Firmware that does not report a setting does not accept it either.
+			for name, current := range map[string]*string{"airplay": d.state.AirPlay, "googlecast": d.state.GoogleCast, "miracast": d.state.Miracast, "livestreaming_quality": d.state.Quality} {
+				if field == name && current == nil {
+					return
+				}
+			}
+			switch field {
+			case "airplay":
+				d.state.AirPlay = stringValue(v)
+			case "googlecast":
+				d.state.GoogleCast = stringValue(v)
+			case "miracast":
+				d.state.Miracast = stringValue(v)
+			case "livestreaming_quality":
+				d.state.Quality = stringValue(v)
+			}
+		}
+	}
+}
 func (d *fakeDevice) modify(fn func()) { d.mu.Lock(); defer d.mu.Unlock(); fn() }
 
 type testBroker struct {
@@ -243,12 +272,12 @@ func TestThreeIndependentDevicesAndExternalState(t *testing.T) {
 	waitOnline(t, o, a, b, d)
 	ids := []string{deviceID(a.state.Serial), deviceID(b.state.Serial), deviceID(d.state.Serial)}
 	for _, id := range ids {
-		for _, control := range controls {
+		for _, c := range controls {
 			var config map[string]any
-			if err := json.Unmarshal([]byte(o.value(discoveryTopic(id, control))), &config); err != nil {
+			if err := json.Unmarshal([]byte(o.value(discoveryTopic(id, c.key))), &config); err != nil {
 				t.Fatal(err)
 			}
-			if config["unique_id"] != id+"_"+control {
+			if config["unique_id"] != id+"_"+c.key {
 				t.Fatal("wrong identity")
 			}
 		}
@@ -351,10 +380,10 @@ func TestRetainedCommandsRestartAndDiscoveryCleanup(t *testing.T) {
 	defer stop()
 	waitOnline(t, o, b)
 	eventually(t, func() bool { return o.value(key) == "" })
-	registry, err := LoadRegistry(path)
-	if err != nil || len(registry.snapshot()) != 1 {
-		t.Fatalf("cleanup failed: %v", err)
-	}
+	eventually(t, func() bool {
+		registry, err := LoadRegistry(path)
+		return err == nil && len(registry.snapshot()) == 1
+	})
 }
 
 func TestBrokerRestartRestoresDiscovery(t *testing.T) {

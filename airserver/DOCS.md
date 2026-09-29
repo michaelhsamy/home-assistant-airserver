@@ -9,7 +9,9 @@
 - AirServer Connect devices reachable over HTTPS, with the API enabled under
   **Device Management → Security**. Firmware must support
   `GET/PATCH /api/v1/system` with `device_serial`, `livestreaming_enabled`, and
-  `livestreaming_rtsp`, plus `POST /api/v1/system/endSession`.
+  `livestreaming_rtsp`, plus `POST /api/v1/system/endSession`. Other entities
+  use additional fields and endpoints listed below; a device that does not
+  report a field shows that entity as unavailable.
 
 ## Install
 
@@ -20,6 +22,42 @@
    the visual editor does not show the device list.
 4. Start the app and enable **Start on boot**. Each device appears under
    **Settings → Devices & services → MQTT**.
+
+## Entities
+
+Each device gets these entities under **Settings → Devices & services → MQTT**.
+Controls (switches, selects, End session) are primary entities; Reboot, Power
+off, and the selects are also listed under the device's **Configuration**
+section, and the sensors under **Diagnostic**.
+
+| Entity | Type | AirServer field or endpoint |
+| --- | --- | --- |
+| Livestream | Switch | `livestreaming_enabled` |
+| RTSP output | Switch | `livestreaming_rtsp` |
+| End session | Button | `POST /api/v1/system/endSession` |
+| Reboot | Button | `POST /api/v1/system/reboot` |
+| Power off | Button | `POST /api/v1/system/powerOff` |
+| AirPlay | Select: off, everyone, code, password, prompt | `airplay` |
+| Google Cast | Select: off, everyone, prompt | `googlecast` |
+| Miracast | Select: off, everyone, pin8, pin4, prompt | `miracast` |
+| Livestream quality | Select: low, medium, high | `livestreaming_quality` |
+| Last boot | Timestamp sensor | `device_system_boot_time` |
+| Firmware version | Sensor | `device_system_version` |
+| Hostname | Sensor | `device_hostname` |
+| Device name | Sensor | `device_name` |
+| Cloud organization | Sensor | `cloud_organization` |
+| Time zone | Sensor | `device_timezone` |
+
+**End session disconnects all users and rotates the Wi-Fi password. Reboot
+and Power off interrupt every session on that AirServer.** After Reboot or
+Power off the device becomes unavailable on the next status check and recovers
+by itself once it is reachable again; a powered-off device stays unavailable
+until it is switched on.
+
+Selecting **password** for AirPlay requires an AirPlay password already set on
+the device; AirServer rejects the change otherwise (HTTP 400). Values the
+device reports that are not in the list above, and boot times that are not
+RFC 3339 timestamps, make only that entity unavailable and are logged once.
 
 ## Configuration
 
@@ -70,11 +108,13 @@ the listener to settle before reporting a mismatch.
 
 ## Behavior
 
-- Livestream writes only `livestreaming_enabled`; RTSP writes only
-  `livestreaming_rtsp`; End session calls `/api/v1/system/endSession`.
-- Switch state is read back after every command, never assumed. If the readback
-  does not match, the app logs a warning and marks the device unavailable until
-  the next successful poll. The command is not repeated.
+- Every command writes exactly one setting or calls one endpoint. Switches and
+  selects PATCH their single field; sensors are never written.
+- Switch and select state is read back after every command, never assumed. If
+  the readback does not match, the app logs a warning and marks the device
+  unavailable until the next successful poll. The command is not repeated.
+  Reboot and Power off are the exception: they are sent once and not read back,
+  because the device is shutting down.
 - Requests time out after five seconds. Failed or timed-out commands are never
   retried or queued. A second command on a busy device is rejected and logged.
 - Restarts of the app or broker restore discovery and read current state; they
@@ -94,6 +134,8 @@ the listener to settle before reporting a mismatch.
 | Device unreachable | Address, port, and network access from Home Assistant. |
 | A switch snaps back | Look for an `accepted ... but its API still reports ...` warning and try `state_source: services`. |
 | RTSP unavailable in services mode | Enable Livestream first. |
+| One entity unavailable while the device is online | The firmware does not report that field, or reports a value outside the documented options. See the `Entity unavailable` warning in the log. |
+| Select change rejected with HTTP 400 | AirServer validates related settings together, for example AirPlay `password` needs an AirPlay password. Change it in the device UI first. |
 
 ## References
 

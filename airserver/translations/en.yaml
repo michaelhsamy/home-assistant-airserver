@@ -1,7 +1,7 @@
 configuration:
   devices:
     name: AirServer devices
-    description: Each device gets its own Livestream and RTSP switches and End session button.
+    description: Each device gets its own switches, selects, buttons, and diagnostic sensors.
     fields:
       name:
         name: Device name

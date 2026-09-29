@@ -24,7 +24,7 @@ func TestAPIIndependentWrites(t *testing.T) {
 			return
 		}
 		if r.Method == http.MethodPatch {
-			var body map[string]bool
+			var body map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
@@ -42,21 +42,24 @@ func TestAPIIndependentWrites(t *testing.T) {
 	if err != nil || *state.Livestream || !*state.RTSP {
 		t.Fatalf("read: %v %v", state, err)
 	}
-	for _, cmd := range []command{{"rtsp", "ON"}, {"livestream", "ON"}, {"rtsp", "OFF"}, {"end_session", "PRESS"}} {
+	for _, cmd := range []command{{"rtsp", "ON"}, {"livestream", "ON"}, {"rtsp", "OFF"}, {"end_session", "PRESS"},
+		{"airplay", "password"}, {"googlecast", "prompt"}, {"miracast", "pin8"}, {"livestream_quality", "high"}, {"reboot", "PRESS"}, {"power_off", "PRESS"}} {
 		if err := api.Command(context.Background(), cmd.control, cmd.payload); err != nil {
 			t.Fatal(err)
 		}
 	}
-	expected := []string{`{"livestreaming_rtsp":true}`, `{"livestreaming_enabled":true}`, `{"livestreaming_rtsp":false}`, "POST /api/v1/system/endSession"}
+	expected := []string{`{"livestreaming_rtsp":true}`, `{"livestreaming_enabled":true}`, `{"livestreaming_rtsp":false}`, "POST /api/v1/system/endSession",
+		`{"airplay":"password"}`, `{"googlecast":"prompt"}`, `{"miracast":"pin8"}`, `{"livestreaming_quality":"high"}`, "POST /api/v1/system/reboot", "POST /api/v1/system/powerOff"}
 	if !reflect.DeepEqual(writes, expected) {
 		t.Fatalf("wrong writes: %v", writes)
 	}
-	for _, cmd := range []command{{"rtsp", "true"}, {"reboot", "PRESS"}, {"end_session", "ON"}} {
+	for _, cmd := range []command{{"rtsp", "true"}, {"reboot", "ON"}, {"end_session", "ON"}, {"airplay", "PRESS"}, {"airplay", "Everyone"},
+		{"googlecast", "pin8"}, {"livestream_quality", "ultra"}, {"hostname", "x"}, {"boot_time", "PRESS"}, {"unknown", "PRESS"}} {
 		if api.Command(context.Background(), cmd.control, cmd.payload) == nil {
 			t.Fatal("invalid command accepted")
 		}
 	}
-	if len(writes) != 4 {
+	if len(writes) != len(expected) {
 		t.Fatal("invalid command reached server")
 	}
 }

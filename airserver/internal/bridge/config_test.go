@@ -54,15 +54,18 @@ func TestDiscoveryIdentityAndIndependentEntities(t *testing.T) {
 		t.Fatal("identity compatibility changed")
 	}
 	a, b := discovery(id, "Before", State{}), discovery(id, "After", State{})
-	if len(a) != 3 || len(b) != 3 {
-		t.Fatal("expected exactly three entities")
+	if len(a) != len(controls) || len(b) != len(controls) {
+		t.Fatal("expected one entity per control")
 	}
 	for name, c := range a {
 		if b[name]["unique_id"] != c["unique_id"] {
 			t.Fatal("rename changed identity")
 		}
-		if c["retain"] != false || c["qos"] != 0 || c["availability_mode"] != "all" {
-			t.Fatal("unsafe command/availability configuration")
+		if c["qos"] != 0 || c["availability_mode"] != "all" {
+			t.Fatal("unsafe availability configuration")
+		}
+		if _, writable := c["command_topic"]; writable && c["retain"] != false {
+			t.Fatal("unsafe command configuration")
 		}
 	}
 	if id == deviceID("serial-2") {

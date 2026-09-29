@@ -23,10 +23,11 @@ type worker struct {
 	rtspKnown                    atomic.Bool
 	announced                    bool
 	model, version, lastError    string
+	warned                       map[string]bool
 }
 
 func newWorker(s *session, config DeviceConfig, id string) *worker {
-	return &worker{session: s, config: config, api: NewAPI(config), id: id, commands: make(chan command, 1), wake: make(chan struct{}, 1)}
+	return &worker{session: s, config: config, api: NewAPI(config), id: id, commands: make(chan command, 1), wake: make(chan struct{}, 1), warned: make(map[string]bool)}
 }
 
 func (w *worker) submit(cmd command) {
@@ -85,6 +86,13 @@ func (w *worker) execute(cmd command) error {
 	if err := w.api.Command(w.session.ctx, cmd.control, cmd.payload); err != nil {
 		return err
 	}
+	c, _ := findControl(cmd.control)
+	if cmd.control == "reboot" || cmd.control == "power_off" {
+		// The device is going down, so a readback would only report an outage.
+		// The next poll marks it unavailable and recovers when it returns.
+		w.session.bridge.log.Info("Device accepted "+c.name, "device", w.config.Name)
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(w.session.ctx, requestTimeout)
 	defer cancel()
 	for {
@@ -92,24 +100,18 @@ func (w *worker) execute(cmd command) error {
 		if err != nil {
 			return err
 		}
-		if cmd.control == "end_session" {
+		if c.domain == "button" {
 			return w.publishState(state)
 		}
-		reported := state.Livestream
-		if cmd.control == "rtsp" {
-			reported = state.RTSP
-		}
-		if reported != nil && *reported == (cmd.payload == "ON") {
+		reported := c.reading(state)
+		if reported != nil && *reported == cmd.payload {
 			return w.publishState(state)
 		}
 		actual := "unavailable"
 		if reported != nil {
-			actual = "OFF"
-			if *reported {
-				actual = "ON"
-			}
+			actual = *reported
 		}
-		if w.config.StateSource != "services" {
+		if w.config.StateSource != "services" || c.domain != "switch" {
 			return fmt.Errorf("AirServer accepted %s=%s but its API still reports %s; check the device UI and firmware", cmd.control, cmd.payload, actual)
 		}
 		// A listener may take a moment to start/stop. Repeat only the reads,
@@ -184,21 +186,25 @@ func (w *worker) publishState(state State) error {
 		}
 		w.announced, w.model, w.version = true, state.Model, state.Version
 	}
-	for control, value := range map[string]*bool{"livestream": state.Livestream, "rtsp": state.RTSP} {
+	for _, c := range controls {
+		if c.value == nil {
+			continue
+		}
+		value := c.reading(state)
 		if value == nil {
-			if err := w.session.publish(topic(id, control+"/availability"), "offline"); err != nil {
+			if c.domain != "switch" && !w.warned[c.key] {
+				w.warned[c.key] = true
+				w.session.bridge.log.Warn("Entity unavailable: firmware reports no usable value; check firmware support", "device", w.config.Name, "entity", c.name)
+			}
+			if err := w.session.publish(topic(id, c.key+"/availability"), "offline"); err != nil {
 				return err
 			}
 			continue
 		}
-		payload := "OFF"
-		if *value {
-			payload = "ON"
-		}
-		if err := w.session.publish(topic(id, control+"/state"), payload); err != nil {
+		if err := w.session.publish(topic(id, c.key+"/state"), *value); err != nil {
 			return err
 		}
-		if err := w.session.publish(topic(id, control+"/availability"), "online"); err != nil {
+		if err := w.session.publish(topic(id, c.key+"/availability"), "online"); err != nil {
 			return err
 		}
 	}

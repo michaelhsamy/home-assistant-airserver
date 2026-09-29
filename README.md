@@ -1,8 +1,10 @@
 # AirServer Connect for Home Assistant
 
 A Home Assistant app that bridges AirServer Connect devices to MQTT discovery.
-Each device gets a **Livestream** switch, an **RTSP output** switch, and an
-**End session** button.
+Each device gets **Livestream** and **RTSP output** switches; **End session**,
+**Reboot**, and **Power off** buttons; **AirPlay**, **Google Cast**,
+**Miracast**, and **Livestream quality** selects; and diagnostic sensors for
+last boot, firmware, hostname, device name, cloud organization, and time zone.
 
 ## Installation
 

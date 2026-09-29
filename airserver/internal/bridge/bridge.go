@@ -138,8 +138,8 @@ func (s *session) removeDevice(id string) error {
 	if err := s.publish(topic(id, "availability"), "offline"); err != nil {
 		return err
 	}
-	for _, control := range controls {
-		for _, name := range []string{discoveryTopic(id, control), topic(id, control+"/state"), topic(id, control+"/set"), topic(id, control+"/availability")} {
+	for _, c := range controls {
+		for _, name := range []string{discoveryTopic(id, c.key), topic(id, c.key+"/state"), topic(id, c.key+"/set"), topic(id, c.key+"/availability")} {
 			if err := s.publish(name, []byte{}); err != nil {
 				return err
 			}

@@ -11,18 +11,31 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"reflect"
+	"slices"
 	"strings"
 	"time"
 )
 
 const requestTimeout = 5 * time.Second
 
+// State holds the subset of GET /api/v1/system that the bridge exposes. The
+// response also contains credentials, which are never decoded.
 type State struct {
-	Serial     string `json:"device_serial"`
-	Model      string `json:"device_model"`
-	Version    string `json:"device_system_version"`
-	Livestream *bool  `json:"livestreaming_enabled"`
-	RTSP       *bool  `json:"livestreaming_rtsp"`
+	Serial       string  `json:"device_serial"`
+	Model        string  `json:"device_model"`
+	Version      string  `json:"device_system_version"`
+	Livestream   *bool   `json:"livestreaming_enabled"`
+	RTSP         *bool   `json:"livestreaming_rtsp"`
+	AirPlay      *string `json:"airplay"`
+	GoogleCast   *string `json:"googlecast"`
+	Miracast     *string `json:"miracast"`
+	Quality      *string `json:"livestreaming_quality"`
+	BootTime     *string `json:"device_system_boot_time"`
+	Hostname     *string `json:"device_hostname"`
+	DeviceName   *string `json:"device_name"`
+	Organization *string `json:"cloud_organization"`
+	Timezone     *string `json:"device_timezone"`
 }
 
 type API struct {
@@ -88,50 +101,75 @@ func (a *API) Read(ctx context.Context) (State, error) {
 	if err != nil {
 		return state, err
 	}
-	// Decode only the fields we need; the response may also contain credentials.
-	if a.config.StateSource == "services" {
-		// Service mode deliberately ignores the firmware's streaming fields,
-		// including missing or invalid values, but still verifies device identity.
-		var metadata struct {
-			Serial  string `json:"device_serial"`
-			Model   string `json:"device_model"`
-			Version string `json:"device_system_version"`
-		}
-		if json.Unmarshal(data, &metadata) != nil {
-			return state, errors.New("firmware response contains invalid JSON")
-		}
-		state.Serial, state.Model, state.Version = metadata.Serial, metadata.Model, metadata.Version
-	} else if json.Unmarshal(data, &state) != nil || state.Livestream == nil || state.RTSP == nil {
-		return state, errors.New("firmware response is missing livestream/RTSP boolean settings or contains invalid JSON")
+	state, err = decodeState(data)
+	if err != nil {
+		return state, err
 	}
 	if strings.TrimSpace(state.Serial) == "" {
 		return state, errors.New("firmware response is missing device_serial")
 	}
 	if a.config.StateSource == "services" {
+		// Service mode deliberately ignores the firmware's streaming fields,
+		// including missing or invalid values.
 		state.Livestream, state.RTSP, err = a.readServices(ctx)
+	} else if state.Livestream == nil || state.RTSP == nil {
+		return state, errors.New("firmware response is missing livestream/RTSP boolean settings")
 	}
 	return state, err
 }
 
-func validCommand(control, payload string) bool {
-	return (control == "end_session" && payload == "PRESS") ||
-		((control == "livestream" || control == "rtsp") && (payload == "ON" || payload == "OFF"))
+// decodeState reads only State's tagged fields from a JSON object. A field
+// whose value has the wrong type stays unset so that only its entity becomes
+// unavailable, rather than the whole device.
+func decodeState(data []byte) (State, error) {
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(data, &raw) != nil || raw == nil {
+		return State{}, errors.New("firmware response is not a JSON object")
+	}
+	var state State
+	fields, values := reflect.TypeOf(state), reflect.ValueOf(&state).Elem()
+	for i := range fields.NumField() {
+		encoded, ok := raw[fields.Field(i).Tag.Get("json")]
+		if !ok {
+			continue
+		}
+		target := reflect.New(fields.Field(i).Type)
+		if json.Unmarshal(encoded, target.Interface()) == nil {
+			values.Field(i).Set(target.Elem())
+		}
+	}
+	return state, nil
 }
 
-func (a *API) Command(ctx context.Context, control, payload string) error {
-	if !validCommand(control, payload) {
+func validCommand(key, payload string) bool {
+	c, ok := findControl(key)
+	if !ok || !c.writable() {
+		return false
+	}
+	switch c.domain {
+	case "button":
+		return payload == "PRESS"
+	case "switch":
+		return payload == "ON" || payload == "OFF"
+	default:
+		return slices.Contains(c.options, payload)
+	}
+}
+
+func (a *API) Command(ctx context.Context, key, payload string) error {
+	if !validCommand(key, payload) {
 		return errors.New("invalid command")
 	}
+	c, _ := findControl(key)
 	method, path := http.MethodPatch, ""
 	var body []byte
-	if control == "end_session" {
-		method, path = http.MethodPost, "/endSession"
-	} else {
-		field := "livestreaming_enabled"
-		if control == "rtsp" {
-			field = "livestreaming_rtsp"
-		}
-		body, _ = json.Marshal(map[string]bool{field: payload == "ON"})
+	switch c.domain {
+	case "button":
+		method, path = http.MethodPost, c.field
+	case "switch":
+		body, _ = json.Marshal(map[string]bool{c.field: payload == "ON"})
+	default:
+		body, _ = json.Marshal(map[string]string{c.field: payload})
 	}
 	// PATCH/POST are not retried. In particular, do not set an idempotency header.
 	_, err := a.request(ctx, method, path, body)

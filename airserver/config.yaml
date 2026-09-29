@@ -1,7 +1,7 @@
 name: AirServer Connect
 version: "0.1.2"
 slug: airserver_connect
-description: Independent livestream, RTSP, and end-session controls for AirServer Connect devices.
+description: Livestream, casting, power, and diagnostic entities for AirServer Connect devices.
 url: https://github.com/michaelhsamy/home-assistant-airserver
 arch:
   - aarch64
