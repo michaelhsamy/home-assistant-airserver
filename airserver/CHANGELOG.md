@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+- Update Go dependencies (golang.org/x/net, golang.org/x/sync).
+- Add staticcheck, govulncheck, and Dependabot to CI.
+- Read the app version from config.yaml only.
+- Trim documentation.
+
 ## 0.1.1
 
 - Add optional `state_source: services` per device to work around stale REST

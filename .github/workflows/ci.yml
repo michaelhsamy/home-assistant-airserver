@@ -20,6 +20,8 @@ jobs:
           cache-dependency-path: airserver/go.sum
       - run: test -z "$(gofmt -l cmd internal)"
       - run: go vet ./...
+      - run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - run: go test -race -timeout=2m ./...
       - run: go build ./cmd/airserver-connect
   build:
@@ -34,6 +36,8 @@ jobs:
             platform: linux/arm64
     steps:
       - uses: actions/checkout@v4
+      - id: version
+        run: echo "version=$(sed -n 's/^version: "\(.*\)"$/\1/p' airserver/config.yaml)" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
@@ -41,4 +45,6 @@ jobs:
           context: airserver
           platforms: ${{ matrix.platform }}
           push: false
-          build-args: BUILD_ARCH=${{ matrix.arch }}
+          build-args: |
+            BUILD_ARCH=${{ matrix.arch }}
+            BUILD_VERSION=${{ steps.version.outputs.version }}

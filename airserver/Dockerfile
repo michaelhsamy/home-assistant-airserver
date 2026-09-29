@@ -16,7 +16,7 @@ RUN case "${BUILD_ARCH}" in \
 
 FROM scratch
 
-ARG BUILD_VERSION=0.1.1
+ARG BUILD_VERSION
 ARG BUILD_ARCH
 LABEL io.hass.name="AirServer Connect" \
       io.hass.description="AirServer Connect controls over MQTT" \
