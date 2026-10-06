@@ -13,7 +13,7 @@ jobs:
       run:
         working-directory: airserver
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version-file: airserver/go.mod
@@ -35,7 +35,7 @@ jobs:
           - arch: aarch64
             platform: linux/arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: version
         run: |
           echo "version=$(sed -n 's/^version: "\(.*\)"$/\1/p' airserver/config.yaml)" >> "$GITHUB_OUTPUT"
